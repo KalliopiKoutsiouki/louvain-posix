@@ -26,7 +26,7 @@ struct clmap_t {
 };
 
 
-struct ThreadData {
+struct ThreadInfo {
     GraphElem start;
     GraphElem end;
     const GraphElem *edge_indices;
@@ -234,10 +234,10 @@ void execLouvainIteration(const GraphElem i, const GraphElem *edge_indices, cons
 
         selfLoop =  buildLocalMapCounter(e0, e1, clmap, clmap_size, counter, counter_size, edge_list, currComm, i);
 
-        // Κλείδωμα του mutex για την προστασία της clusterWeight
+        // Lock mutex to protect clusterWeight
         pthread_mutex_lock(&clusterWeightMutex);
         clusterWeight[i] += counter[0];
-        // Ξεκλειδώνουμε το mutex
+        // Unclock mutex
         pthread_mutex_unlock(&clusterWeightMutex);
 
         localTarget = getMaxIndex(clmap, clmap_size, counter, counter_size, selfLoop, localCinfo,
@@ -247,7 +247,7 @@ void execLouvainIteration(const GraphElem i, const GraphElem *edge_indices, cons
     }
 
     if ((localTarget != cc) && (localTarget != -1)) {
-        // Κλείδωμα του mutex για την προστασία των δομών localCinfo και localCupdate
+        // Lock mutexes to protect localCinfo and localCupdate 
         pthread_mutex_lock(&localCinfoMutex);
         pthread_mutex_lock(&localCupdateMutex);
 
@@ -256,7 +256,7 @@ void execLouvainIteration(const GraphElem i, const GraphElem *edge_indices, cons
         localCupdate[cc].degree -= vDegree[i];
         localCupdate[cc].size--;
 
-        // Ξεκλειδώνουμε τα mutex
+        // Unlock mutexes
         pthread_mutex_unlock(&localCinfoMutex);
         pthread_mutex_unlock(&localCupdateMutex);
     }
@@ -306,58 +306,56 @@ void cleanCWandCU(const GraphElem nv, GraphWeight *clusterWeight,
 } // distCleanCWandCU
 
 
-void *worker(void *arg) {
-    ThreadData *data = static_cast<ThreadData*>(arg);
-    for (GraphElem i = data->start; i < data->end; i++) {
-        execLouvainIteration(i, data->edge_indices, data->edge_list, data->currComm,
-                             data->targetComm, data->vDegree, data->localCinfo,
-                             data->localCupdate, data->constantForSecondTerm,
-                             data->clusterWeight);
+void *execThreadMethod(void *arg) {
+    ThreadInfo *info = (ThreadInfo*)(arg);
+    for (GraphElem i = info->start; i < info->end; i++) {
+        execLouvainIteration(i, info->edge_indices, info->edge_list, info->currComm,
+                             info->targetComm, info->vDegree, info->localCinfo,
+                             info->localCupdate, info->constantForSecondTerm,
+                             info->clusterWeight);
     }
     pthread_exit(nullptr);
 }
 
 
-void execLouvainParallel(const GraphElem n, const GraphElem *edge_indices,
-                                   const Edge *edge_list, const GraphElem *currComm,
-                                   GraphElem *targetComm, const GraphWeight *vDegree,
-                                   Comm *localCinfo, Comm *localCupdate,
-                                   const GraphWeight constantForSecondTerm,
-                                   GraphWeight *clusterWeight, const int num_threads) {
-    pthread_t threads[num_threads];
-    std::vector<ThreadData> thread_data(num_threads);
-    GraphElem chunk_size = n / num_threads;
-    GraphElem remainder = n % num_threads;
+void execLouvainParallel(const GraphElem n, const GraphElem *edge_indices, const Edge *edge_list, const GraphElem *currComm,
+                                   GraphElem *targetComm, const GraphWeight *vDegree, Comm *localCinfo, Comm *localCupdate,
+                                   const GraphWeight constantForSecondTerm, GraphWeight *clusterWeight, const int numThreads) {
+    pthread_t threads[numThreads];
+    std::vector<ThreadInfo> threadInfo(numThreads);
+    GraphElem chunkSize = n / numThreads;
     GraphElem start = 0, end;
 
 
     // Create threads
-    for (int i = 0; i < num_threads; i++) {
-        end = start + chunk_size + (i < remainder ? 1 : 0);
+    for (int i = 0; i < numThreads; i++) {
+        if (i==numThreads-1) {
+          end = n;
+        }
+        else {
+          end = start + chunkSize;
+        }
+        threadInfo[i].start = start;
+        threadInfo[i].end = end;
+        threadInfo[i].edge_indices = edge_indices;
+        threadInfo[i].edge_list = edge_list;
+        threadInfo[i].currComm = currComm;
+        threadInfo[i].targetComm = targetComm;
+        threadInfo[i].vDegree = vDegree;
+        threadInfo[i].localCinfo = localCinfo;
+        threadInfo[i].localCupdate = localCupdate;
+        threadInfo[i].constantForSecondTerm = constantForSecondTerm;
+        threadInfo[i].clusterWeight = clusterWeight;
 
 
-        thread_data[i].start = start;
-        thread_data[i].end = end;
-        thread_data[i].edge_indices = edge_indices;
-        thread_data[i].edge_list = edge_list;
-        thread_data[i].currComm = currComm;
-        thread_data[i].targetComm = targetComm;
-        thread_data[i].vDegree = vDegree;
-        thread_data[i].localCinfo = localCinfo;
-        thread_data[i].localCupdate = localCupdate;
-        thread_data[i].constantForSecondTerm = constantForSecondTerm;
-        thread_data[i].clusterWeight = clusterWeight;
-
-
-        pthread_create(&threads[i], nullptr, worker, &thread_data[i]);
-
-
+        pthread_create(&threads[i], nullptr, execThreadMethod, (void *)&threadInfo[i]);
+        
         start = end;
     }
 
 
     // Join threads
-    for (int i = 0; i < num_threads; i++) {
+    for (int i = 0; i < numThreads; i++) {
         pthread_join(threads[i], nullptr);
     }
 }
@@ -413,7 +411,7 @@ GraphWeight louvainMethod(const Graph &g, const GraphWeight lower, const GraphWe
     dur[1]  += std::chrono::duration_cast<std::chrono::microseconds>(t_end[1] - t_start[1]);
 
     t_start[2] = std::chrono::high_resolution_clock::now();
-    execLouvainParallel(g.get_nv(), d_edge_indices, d_edge_list, d_currComm, d_targetComm, d_vDegree, d_localCinfo,d_localCupdate, constantForSecondTerm, d_clusterWeight,numThreads);
+    execLouvainParallel(nv, d_edge_indices, d_edge_list, d_currComm, d_targetComm, d_vDegree, d_localCinfo,d_localCupdate, constantForSecondTerm, d_clusterWeight,numThreads);
     t_end[2] = std::chrono::high_resolution_clock::now();
     dur[2]  += std::chrono::duration_cast<std::chrono::microseconds>(t_end[2] - t_start[2]);
 
