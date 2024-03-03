@@ -9,6 +9,7 @@ static GraphElem nvRGG = 0;
 
 static bool isUnitEdgeWeight = false;
 static GraphWeight threshold = 1.0E-6;
+static int numThreads;
 
 static void parseCommandLine(const int argc, char * const argv[]);
 
@@ -39,7 +40,7 @@ int main(int argc, char *argv[])
     
   td0 = std::chrono::high_resolution_clock::now();
 
-  currMod = louvainMethod(*g, currMod, threshold, iters);
+  currMod = louvainMethod(*g, currMod, threshold, iters,numThreads);
 
   td1 = std::chrono::high_resolution_clock::now();
   td  = std::chrono::duration_cast<std::chrono::microseconds>(td1 - td0);
@@ -70,6 +71,10 @@ void parseCommandLine(const int argc, char * const argv[])
   while ((ret = getopt(argc, argv, "f:n:lt:p:uh")) != -1) 
   {
           switch (ret) {
+              case 'p':
+                  char *endptr;
+                  numThreads = strtol(optarg, &endptr, 10);
+                  break;
               case 'f':
                   inputFileName.assign(optarg);
                   break;

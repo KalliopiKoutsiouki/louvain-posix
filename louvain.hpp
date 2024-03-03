@@ -362,65 +362,7 @@ void execLouvainParallel(const GraphElem n, const GraphElem *edge_indices,
     }
 }
 
-// void execLouvainParallel(const GraphElem numNodes,  const GraphElem *edge_indices, const Edge *edge_list,
-//                          const GraphElem *currComm, GraphElem *targetComm, const GraphWeight *vDegree,
-//                          Comm *localCinfo, Comm *localCupdate,  GraphWeight constantForSecondTerm,
-//                          GraphWeight *clusterWeight, int numThreads)
-// {
-//     pthread_t threads[numThreads];
-//     std::vector<ThreadData> td(numThreads);
-//     int rc;
-   
-//     GraphElem chunk = (numNodes+numThreads-1) / numThreads;
-//     GraphElem remainder = numNodes % numThreads;
-
-//     // Δημιουργία και εκκίνηση των νημάτων
-//    GraphElem startNode = 0;
-//    int index = 0; // Initialize counter variable
-//    for (auto& threadData : td) {
-//         threadData.startNode = startNode;
-//         threadData.chunk = chunk;
-//         threadData.edge_indices = edge_indices;
-//         threadData.edge_list = edge_list;
-//         threadData.currComm = currComm;
-//         threadData.targetComm = targetComm;
-//         threadData.vDegree = vDegree;
-//         threadData.localCinfo = localCinfo;
-//         threadData.localCupdate = localCupdate;
-//         threadData.constantForSecondTerm = constantForSecondTerm;
-//         threadData.clusterWeight = clusterWeight;
-    
- 
-
-
-//         // Προσαρμογή του μεγέθους του τμήματος για το τελευταίο νήμα
-//         if (index == numThreads - 1) {
-//             chunk += remainder;
-//         }
-        
-
-//         // Δημιουργία του νήματος
-//         rc = pthread_create(&threads[index], NULL, threadFunction, static_cast<void *>(&td[index]));
-//         if (rc) {
-//             printf("ERROR; return code from pthread_create() is %d\n", rc);
-//             exit(-1);
-//         }
-
-//         // Αύξηση της αρχικής θέσης του επόμενου τμήματος
-//         startNode += chunk;
-//         index++;
-//     }
-
-//     int t;
-//     // Αναμονή για την ολοκλήρωση των νημάτων
-//     for (t = 0; t < numThreads; t++) {
-//         pthread_join(threads[t], NULL);
-//               std::cout << "Join Thread " << t<< std::endl;
-//     }
-// }
-
-
-GraphWeight louvainMethod(const Graph &g, const GraphWeight lower, const GraphWeight thresh, int &iters)
+GraphWeight louvainMethod(const Graph &g, const GraphWeight lower, const GraphWeight thresh, int &iters,int numThreads)
 {
   // Times
   std::chrono::time_point<std::chrono::high_resolution_clock> t_start[6], t_end[6];
@@ -471,11 +413,7 @@ GraphWeight louvainMethod(const Graph &g, const GraphWeight lower, const GraphWe
     dur[1]  += std::chrono::duration_cast<std::chrono::microseconds>(t_end[1] - t_start[1]);
 
     t_start[2] = std::chrono::high_resolution_clock::now();
-    // for (GraphElem i = 0; i < nv; i++) {
-    //     execLouvainIteration(i, d_edge_indices, d_edge_list, d_currComm, d_targetComm, d_vDegree, d_localCinfo, 
-    //                          d_localCupdate, constantForSecondTerm, d_clusterWeight);
-    // }
-    execLouvainParallel(g.get_nv(), d_edge_indices, d_edge_list, d_currComm, d_targetComm, d_vDegree, d_localCinfo,d_localCupdate, constantForSecondTerm, d_clusterWeight,4);
+    execLouvainParallel(g.get_nv(), d_edge_indices, d_edge_list, d_currComm, d_targetComm, d_vDegree, d_localCinfo,d_localCupdate, constantForSecondTerm, d_clusterWeight,numThreads);
     t_end[2] = std::chrono::high_resolution_clock::now();
     dur[2]  += std::chrono::duration_cast<std::chrono::microseconds>(t_end[2] - t_start[2]);
 
